@@ -1,0 +1,136 @@
+from flask import Flask, jsonify, request, make_response
+from models import *
+from flask_migrate import Migrate
+
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required
+from flask_bcrypt import bcrypt
+
+app = Flask(__name__)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///entries.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db.init_app(app=app)
+
+migrate = Migrate(app, db)
+
+#READ => get the resource on the root route
+@app.route("/", methods=["GET"])
+def index():
+    return {"msg": "welcome to the journal entries platform"}
+
+#READ => get the entries resource with pagination
+@app.route("/entries", methods=["GET"])
+def get_journal_entries():
+
+    #Define page and per page request parameters for the /entries endpoint
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 5, type=int)
+
+    #query the db and paginate with paginate()
+    pagination = JournalEntry.query.paginate(page=page, per_page=per_page, error_out=False)
+
+    entries = pagination.items
+    
+    #Return a response => to determine how many entries can be returned per page
+    return make_response({
+        "page": pagination.page,
+        "per_page": pagination.per_page,
+        "items": [JournalEntrySchema().dump(e) for e in entries]
+    }, 200)
+
+
+#CREATE => create entry resource
+@app.route("/entries", methods=["POST"])
+def create_journal_entries():
+    
+    try:
+
+        #Deserializing incoming data
+        incoming_data = JournalEntrySchema().load(request.get_json())
+
+        db.session.add_all(incoming_data)
+        db.session.commit()
+
+        #Serializing => return serialized response to the client
+        incoming_data_dict = JournalEntrySchema().dump(request.get_json())
+        return make_response(incoming_data_dict,201)
+
+    #Raise an error when trying to deserialize incoming data
+    except ValidationError as err:
+         return make_response({"error": f"could not load the data {err}"}, 404)
+
+#UPDATE => update an entry resource
+@app.route("/entries/<id>", methods=["PATCH"])
+def update_journal_entries(id):
+
+    try:
+    
+        #Deserializing incoming data
+        incoming_data = JournalEntrySchema().load(request.get_json(), many=False)
+
+        #get the entry in the db by id
+        entry = JournalEntry.query.filter_by(id = id).first()
+
+        #Check if entry does not exist in the db
+        if not entry:
+          return make_response({"error": f"entry of {id} not found in the database"},404)  
+
+        #Update entry field if entry does not exists in the db
+        entry.title = incoming_data["title"]
+        entry.content = incoming_data["content"]
+
+        db.session.commit()
+
+        return make_response({"msg": f"data updated successfully"},200)
+    
+    #Raise an error when trying to update data in the db
+    except Exception as e:
+        return make_response({"error": f"could not update the data {e}"},404)
+
+
+
+@app.route("/entries/<id>", methods=["DELETE"])
+def delete_journal_entries(id):
+
+    try:
+        #get the entry in the db by id
+        entry = JournalEntry.query.filter_by(id = id).first()
+
+        #Check if entry does not exist in the db
+        if not entry:
+          return make_response({"error": f"entry of {id} not found in the database"},404)  
+
+        #delete entry record if the entry exists in the db
+        db.session.delete(id)
+        db.session.commit()
+
+        return make_response({"msg": f"data del successfully"},200)
+
+    #Raise an error when trying to update data in the db
+    except Exception as e:
+        return make_response({"error": f"could not update the data {e}"},404)
+    
+
+#Implement authentication for a user using username and password
+@app.route('/login', methods=['POST'])
+def login():
+
+    #Deserializing incoming data
+    incoming_data = UserSchema().load(request.get_json(), many=False)
+
+    print('Received data:', incoming_data['username'] , incoming_data['password'])
+
+    #get the entry in the db by id
+    user = User.query.filter_by(username=incoming_data['username']).first()
+
+    #check if the user exists in the db when trying to log in
+    # check if the password from the user is correct
+    if user and bcrypt.check_password_hash(user.password, incoming_data['password']):
+
+        access_token = create_access_token(identity=user.id)
+        return make_response({'message': 'Login Success', 'access_token': access_token})
+    else:
+        return make_response({'message': 'Login Failed'}, 401)
+
+
