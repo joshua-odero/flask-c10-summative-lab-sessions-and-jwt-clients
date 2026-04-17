@@ -13,6 +13,7 @@ metadata = MetaData(naming_convention={
     "pk": "pk_%(table_name)s"
 })
 
+#db initialization
 db = SQLAlchemy(metadata=metadata)
 
 #Create user model for db constraints and validation

@@ -1,16 +1,26 @@
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, request, make_response
 from models import *
 from flask_migrate import Migrate
 
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from flask_bcrypt import bcrypt
 
 app = Flask(__name__)
 
+#db configuration
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///entries.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+# jwt configuration
+app.config['SECRET_KEY'] = 'your_strong_secret_key'
+app.config["JWT_SECRET_KEY"] = 'your_jwt_secret_key'
+app.config['JWT_TOKEN_LOCATION'] = ['headers']
+
+#initialize db's connection to the app
 db.init_app(app=app)
+
+#JWT initialization
+jwt = JWTManager(app)
 
 migrate = Migrate(app, db)
 
@@ -20,9 +30,21 @@ def index():
     return {"msg": "welcome to the journal entries platform"}
 
 #READ => get the entries resource with pagination
+#  GET /entries is a protected endpoint and requires verification of user identity
+@jwt_required()
 @app.route("/entries", methods=["GET"])
 def get_journal_entries():
 
+    # Extract the user ID from the JWT
+    user_id = get_jwt_identity()
+    user = User.query.filter_by(id=user_id).first()
+
+    #THE FOLLOWING HAPPENS WHEN THE USER'S ID IN JWT TOKEN IS NOT ACCEPTED
+    if not user:
+        return make_response({'error': '401 Unauthorized'}, 401)
+    
+    #THE FOLLOWING HAPPENS WHEN THE USER'S ID IN JWT TOKEN IS ACCEPTED
+    
     #Define page and per page request parameters for the /entries endpoint
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 5, type=int)
@@ -32,7 +54,8 @@ def get_journal_entries():
 
     entries = pagination.items
     
-    #Return a response => to determine how many entries can be returned per page
+    #Return a response
+    #Returns pagination metadata=> page number, number of entries per page, entries etc.
     return make_response({
         "page": pagination.page,
         "per_page": pagination.per_page,
@@ -45,7 +68,6 @@ def get_journal_entries():
 def create_journal_entries():
     
     try:
-
         #Deserializing incoming data
         incoming_data = JournalEntrySchema().load(request.get_json())
 
@@ -61,11 +83,22 @@ def create_journal_entries():
          return make_response({"error": f"could not load the data {err}"}, 404)
 
 #UPDATE => update an entry resource
+# PATCH /entries is a protected endpoint and requires verification of user identity
+@jwt_required()
 @app.route("/entries/<id>", methods=["PATCH"])
 def update_journal_entries(id):
 
-    try:
+    # Extract the user ID from the JWT
+    user_id = get_jwt_identity()
+    user = User.query.filter_by(id=user_id).first()
+
+    #THE FOLLOWING HAPPENS WHEN THE USER'S ID IN JWT TOKEN IS NOT ACCEPTED
+    if not user:
+        return make_response({'error': '401 Unauthorized'}, 401)
     
+    #THE FOLLOWING HAPPENS WHEN THE USER'S ID IN JWT TOKEN IS ACCEPTED
+
+    try:
         #Deserializing incoming data
         incoming_data = JournalEntrySchema().load(request.get_json(), many=False)
 
@@ -93,6 +126,15 @@ def update_journal_entries(id):
 @app.route("/entries/<id>", methods=["DELETE"])
 def delete_journal_entries(id):
 
+    # Extract the user ID from the JWT
+    user_id = get_jwt_identity()
+    user = User.query.filter_by(id=user_id).first()
+
+    #THE FOLLOWING HAPPENS WHEN THE USER'S ID IN JWT TOKEN IS NOT ACCEPTED
+    if not user:
+        return make_response({'error': '401 Unauthorized'}, 401)
+    
+    #THE FOLLOWING HAPPENS WHEN THE USER'S ID IN JWT TOKEN IS ACCEPTED
     try:
         #get the entry in the db by id
         entry = JournalEntry.query.filter_by(id = id).first()
@@ -105,7 +147,7 @@ def delete_journal_entries(id):
         db.session.delete(id)
         db.session.commit()
 
-        return make_response({"msg": f"data del successfully"},200)
+        return make_response({"msg": f"data deleted successfully"},200)
 
     #Raise an error when trying to update data in the db
     except Exception as e:
@@ -125,7 +167,7 @@ def login():
     user = User.query.filter_by(username=incoming_data['username']).first()
 
     #check if the user exists in the db when trying to log in
-    # check if the password from the user is correct
+    # compare the hash password provided by the user and hash password stored in the db
     if user and bcrypt.check_password_hash(user.password, incoming_data['password']):
 
         access_token = create_access_token(identity=user.id)
