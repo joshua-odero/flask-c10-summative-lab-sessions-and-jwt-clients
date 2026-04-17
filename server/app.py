@@ -1,9 +1,18 @@
 from flask import Flask, request, make_response
 from models import *
 from flask_migrate import Migrate
+from dotenv import load_dotenv
+import os
+from pathlib import Path
 
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from flask_bcrypt import bcrypt
+
+#define the path to the env path starting from where app.py is
+env_path = Path(__file__).resolve().parent.parent / ".env"
+
+# Load all variables from .env
+load_dotenv(dotenv_path=env_path)  
 
 app = Flask(__name__)
 
@@ -12,8 +21,8 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///entries.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # jwt configuration
-app.config['SECRET_KEY'] = 'your_strong_secret_key'
-app.config["JWT_SECRET_KEY"] = 'your_jwt_secret_key'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
+app.config["JWT_SECRET_KEY"] = os.getenv('JWT_SECRET_KEY')
 app.config['JWT_TOKEN_LOCATION'] = ['headers']
 
 #initialize db's connection to the app
